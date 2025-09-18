@@ -1,0 +1,13 @@
+train: ../train/images
+val: ../valid/images
+test: ../test/images
+
+nc: 1
+names: ['BuildingCodes']
+
+roboflow:
+  workspace: mp-assignment-8jzdp
+  project: mp-assignment-cdm0f
+  version: 15
+  license: CC BY 4.0
+  url: https://universe.roboflow.com/mp-assignment-8jzdp/mp-assignment-cdm0f/dataset/15
