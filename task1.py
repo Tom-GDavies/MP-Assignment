@@ -17,8 +17,11 @@
 # Last Modified: 2024-09-09
 
 import os
+os.environ["OMP_NUM_THREADS"] = "1"
+os.environ["MKL_NUM_THREADS"] = "1"
 import ultralytics
 import cv2
+import torch
 
 def save_output(output_path, content, output_type='txt'):
     os.makedirs(os.path.dirname(output_path), exist_ok=True)
@@ -36,8 +39,13 @@ def save_output(output_path, content, output_type='txt'):
 
 def run_task1(image_path, config):
     # TODO: Implement task 1 here
-    output_path = f"output/task1/result.txt"
-    train_model = True
+    train_model = False
+
+    # Check that cuda is enabled
+    print(torch.version.cuda)
+    print(torch.cuda.is_available())
+    if torch.cuda.is_available():
+        print(torch.cuda.get_device_name(0))
 
     if train_model:
         # Train model
@@ -46,9 +54,9 @@ def run_task1(image_path, config):
         model.train(
             data="data.yaml",
             epochs=50,
-            imgsz=940,
-            batch=16,
-            optimizer="AdamW"
+            batch=8,
+            imgsz=960,
+            workers=2
         )
 
         # Evaluate model
@@ -57,7 +65,26 @@ def run_task1(image_path, config):
     else:
         model = ultralytics.YOLO("runs/detect/train/weights/best.pt")
 
-    # Perform prediction    
+    # Ensure output folder exists
+    os.makedirs("output/task1", exist_ok=True)
 
+    # Iterate over all images in the input directory
+    for filename in os.listdir(image_path):
+        if filename.lower().startswith("img") and filename.lower().endswith(".jpg"):
+            file_path = os.path.join(image_path, filename)
+            results = model.predict(file_path, imgsz=960)
 
-    save_output(output_path, "Task 1 output", output_type='txt')
+            if len(results[0].boxes) > 0:
+                # Take the first detected box only
+                box = results[0].boxes.xyxy[0].cpu().numpy()  # [x1, y1, x2, y2]
+                image = cv2.imread(file_path)
+                x1, y1, x2, y2 = box.astype(int)
+                cropped = image[y1:y2, x1:x2]
+
+                # Generate output filename: imgX.jpg -> bnX.png
+                index = ''.join(filter(str.isdigit, filename))
+                output_img_path = os.path.join("output/task1", f"bn{index}.png")
+
+                save_output(output_img_path, cropped, output_type='image')
+            else:
+                print(f"No building number detected in {filename}. No output created.")

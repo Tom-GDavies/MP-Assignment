@@ -1,5 +1,5 @@
-test/
-train/
-valid/
-synthetic_digits/
-venv/
+/test/
+/train/
+/valid/
+/synthetic_digits/
+/venv/

@@ -1,7 +1,8 @@
-
 numpy
 opencv-python
 scikit-learn
 tensorflow
 torch
+torchvision
 matplotlib
+ultralytics

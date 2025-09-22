@@ -27,6 +27,7 @@ from sklearn.model_selection import train_test_split
 import tensorflow as tf
 from tensorflow.keras import layers, models
 from tensorflow.keras.models import load_model
+from tensorflow.keras.callbacks import EarlyStopping
 
 # Set to true to print the images
 show_images = True
@@ -119,7 +120,7 @@ def run_task3(image_path, config):
             validation_data=(X_val, y_val)
         )
 
-        callback = tf.keras.callbacks.EarlyStopping(monitor='val_loss', patience=3, restore_best_weights=True)
+        callback = EarlyStopping(monitor='val_loss', patience=3, restore_best_weights=True)
         model.fit(X_train, y_train, epochs=20, batch_size=64, validation_data=(X_val, y_val), callbacks=[callback])
 
         test_loss, test_acc = model.evaluate(X_test, y_test)
