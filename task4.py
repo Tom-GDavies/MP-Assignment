@@ -36,5 +36,13 @@ def save_output(output_path, content, output_type='txt'):
 
 def run_task4(image_path, config):
     # TODO: Implement task 4 here
+
+    # Extract building number from image
+
+    # Extract characters from building number
+
+    # Predict numbers
+
+
     output_path = f"output/task4/result.txt"
     save_output(output_path, "Task 4 output", output_type='txt')

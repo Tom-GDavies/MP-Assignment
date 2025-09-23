@@ -1,37 +1,17 @@
-
-
-# Licensed under the Apache License, Version 2.0 (the "License");
-# you may not use this file except in compliance with the License.
-# You may obtain a copy of the License at
-#
-#     http://www.apache.org/licenses/LICENSE-2.0
-#
-# Unless required by applicable law or agreed to in writing, software
-# distributed under the License is distributed on an "AS IS" BASIS,
-# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-# See the License for the specific language governing permissions and
-# limitations under the License.
-
-
-# Author: Thomas Davies
-# Last Modified: 2025-Aug-21
-
 import os
 import shutil
 import re
 import cv2
 import numpy as np
-import glob
-from tensorflow.keras.utils import to_categorical
-from sklearn.model_selection import train_test_split
 import tensorflow as tf
+import tensorflow_datasets as tfds
 from tensorflow.keras import layers, models
 from tensorflow.keras.models import load_model
 from tensorflow.keras.callbacks import EarlyStopping
 
 # Set to true to print the images
-show_images = True
-retrain_model = True
+show_images = False
+retrain_model = False
 
 
 def save_output(output_path, content, output_type='txt'):
@@ -42,62 +22,47 @@ def save_output(output_path, content, output_type='txt'):
             f.write(content)
         print(f"Text file saved at: {output_path}")
     elif output_type == 'image':
-        # Assuming 'content' is a valid image object, e.g., from OpenCV
         cv2.imwrite(output_path, content)
         print(f"Image saved at: {output_path}")
     else:
         print("Unsupported output type. Use 'txt' or 'image'.")
 
+
 def run_task3(image_path, config):
-    # TODO: Implement task 3 here
 
     if retrain_model or not os.path.exists("digit_cnn.h5"):
 
-        data_dir = "synthetic_digits"
-        images = []
-        labels = []
-
         #####################################################
-        # Prepare training data
+        # Load MNIST data
         #####################################################
-
-        for filename in os.listdir(data_dir):
-            if filename.endswith(".png"):
-                img_path = os.path.join(data_dir, filename)
-
-                img = cv2.imread(img_path, cv2.IMREAD_GRAYSCALE)
-                img = cv2.resize(img, (32,32))
-                img = img.astype("float32") / 255.0
-                img = np.expand_dims(img, axis=-1)  # only channel dim, shape -> (32,32,1)
-                images.append(img)
+        ds_train, ds_test = tfds.load('svhn_cropped', split=['train', 'test'], as_supervised=True)
 
 
-                label = int(filename.split("_")[0])
-                labels.append(label)
-
-            else:
-                print(f"File {filename} is not a png")
-
-
-        X = np.array(images)
-        X = X.reshape(-1, 32, 32, 1)
-
-        y = np.array(labels)
+        def preprocess(image, label):
+            image = tf.image.convert_image_dtype(image, tf.float32)
+            label = tf.one_hot(label, depth=10)
+            return image, label
         
-        
-        y = to_categorical(y, num_classes=10)
+        # Test data
+        ds_test = ds_test.map(preprocess).batch(64).prefetch(tf.data.AUTOTUNE)
 
-        
-        X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.3, stratify=y)
-        X_val, X_test, y_val, y_test = train_test_split(X_test, y_test, test_size=0.5, stratify=y_test)
+        # Train and val data
+        ds_train = ds_train.map(preprocess)
+        ds_train = ds_train.shuffle(10000, reshuffle_each_iteration=True)
 
+        ds_val = ds_train.take(5000)
+        ds_train = ds_train.skip(5000)
+
+        # Batch AFTER splitting
+        ds_train = ds_train.batch(64).prefetch(tf.data.AUTOTUNE)
+        ds_val = ds_val.batch(64).prefetch(tf.data.AUTOTUNE)
 
         #####################################################
-        # Train model
+        # Define CNN model
         #####################################################
-
         model = models.Sequential([
-            layers.Conv2D(32, (3,3), activation='relu', input_shape=(32,32,1)),
+            # input shape should be (32, 32, 3) for RGB
+            layers.Conv2D(32, (3,3), activation='relu', input_shape=(32,32,3)),
             layers.MaxPooling2D((2,2)),
             
             layers.Conv2D(64, (3,3), activation='relu'),
@@ -112,25 +77,30 @@ def run_task3(image_path, config):
             loss='categorical_crossentropy',
             metrics=['accuracy'])
 
+        #####################################################
+        # Train model
+        #####################################################
+        callback = EarlyStopping(monitor='val_loss', patience=3, restore_best_weights=True)
         
         history = model.fit(
-            X_train, y_train,
-            epochs=10,
-            batch_size=64,
-            validation_data=(X_val, y_val)
+            ds_train,
+            epochs=20,
+            validation_data=ds_val,
+            callbacks=[callback]
         )
 
-        callback = EarlyStopping(monitor='val_loss', patience=3, restore_best_weights=True)
-        model.fit(X_train, y_train, epochs=20, batch_size=64, validation_data=(X_val, y_val), callbacks=[callback])
+        test_loss, test_acc = model.evaluate(ds_test)
+        print("Test accuracy:", test_acc, ", Test loss:", test_loss)
 
-        test_loss, test_acc = model.evaluate(X_test, y_test)
-        print("Test accuracy:", test_acc)
 
         model.save("digit_cnn.h5")
+
     else:
         model = load_model("digit_cnn.h5")
 
-
+    #####################################################
+    # Inference on external images
+    #####################################################
     for folder_name in os.listdir(image_path):
         if re.search(r"bn\d+", folder_name):
 
@@ -143,13 +113,8 @@ def run_task3(image_path, config):
             
             new_image_path = os.path.join(image_path, folder_name)
 
-            print(image_path)
             for file_name in os.listdir(new_image_path):
                 if re.search(r"c\d+\.png", file_name):
-
-                    #####################################################
-                    # Import file
-                    #####################################################
 
                     file_path = os.path.join(new_image_path, file_name)
                     image = cv2.imread(file_path)
@@ -158,45 +123,34 @@ def run_task3(image_path, config):
                         print(f"Failed to load image at : {file_path}")
                         continue
 
-                    #####################################################
-                    # Data preprocessing
-                    #####################################################
-                    
-                    gray = cv2.resize(image, (32,32))
-                    gray = cv2.cvtColor(gray, cv2.COLOR_BGR2GRAY)
-                    gray = cv2.createCLAHE(clipLimit=2.0, tileGridSize=(8,8)).apply(gray)
-                    gray = gray / 255.0
-                    gray = np.expand_dims(gray, axis=-1)
-                    gray = np.expand_dims(gray, axis=0)
+                    resized = cv2.resize(image, (32,32))
 
+                    grey = cv2.cvtColor(resized, cv2.COLOR_RGB2GRAY)
+                    thresh = cv2.adaptiveThreshold(grey, 255, cv2.ADAPTIVE_THRESH_GAUSSIAN_C, cv2.THRESH_BINARY_INV, 51, 5)
+                    kernel = cv2.getStructuringElement(cv2.MORPH_RECT, (3,3))
+                    close = cv2.morphologyEx(thresh, cv2.MORPH_CLOSE, kernel, iterations=1)
 
-                    #####################################################
-                    # Prediction pipeline
-                    #####################################################
+                    clahe = cv2.createCLAHE(clipLimit=2.0, tileGridSize=(8,8)).apply(close)
 
-                    pred = model.predict(gray)
+                    colourAgain = cv2.cvtColor(clahe, cv2.COLOR_GRAY2RGB)
+
+                    scaled = colourAgain.astype(np.float32) / 255.0
+                    expanded = np.expand_dims(scaled, axis=0)
+
+                    pred = model.predict(expanded)
                     predicted_class = np.argmax(pred, axis=1)[0]
 
                     print("Predicted digit:", predicted_class)
 
                     if show_images:
-                        display_img = gray[0, :, :, 0]  # shape -> (32, 32)
+                        display_img = image
                         cv2.imshow(f"{predicted_class}", display_img)
                         cv2.waitKey(0)
                         cv2.destroyAllWindows()
 
-
-                    #####################################################
-                    # Save output
-                    #####################################################
-
                     img_num = re.search(r"c(\d+)\.png", file_name).group(1)
-
-                    save_output(os.path.join(folder, f"c{img_num}.txt"), "num", output_type='txt')
-
-                
+                    save_output(os.path.join(folder, f"c{img_num}.txt"), str(predicted_class), output_type='txt')
                 else:
                     print(f"Error: invalid file name: {folder_name}")
         else:
             print(f"Error: invalid folder name: {folder_name}")
-
