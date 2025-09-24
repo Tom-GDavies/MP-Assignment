@@ -27,6 +27,9 @@ from tensorflow.keras import layers, models
 from tensorflow.keras.models import load_model
 from tensorflow.keras.callbacks import EarlyStopping
 
+
+print_images = True
+
 def save_output(output_path, content, output_type='txt'):
     os.makedirs(os.path.dirname(output_path), exist_ok=True)
     
@@ -50,7 +53,6 @@ def run_task4(image_path, config):
     # Train or load model
     ##############################################################################
     train_model = False
-    print_images = True
 
     # Check that cuda is enabled
     print(torch.version.cuda)
@@ -89,6 +91,10 @@ def run_task4(image_path, config):
             ##############################################################################
             whole_building_number = extract_building_number(model, file_path)
 
+            if whole_building_number is None:
+                print(f"No building number detected in {filename}, skipping...")
+                continue  # skip this image
+
             if print_images and whole_building_number is not None:
                 cv2.imshow("Building Number", whole_building_number)
                 cv2.waitKey(0)
@@ -104,6 +110,12 @@ def run_task4(image_path, config):
                     cv2.imshow(f"Character {i+1}", char_img)
                     cv2.waitKey(0)
                     cv2.destroyAllWindows()
+
+            # If there are less than 3 then it was extracted incorrectly
+            if len(characters) < 3:
+                print("Less than 3 characters were extracted. Either the number is an invalid building number or characters were extracted unsuccessfully.")
+                continue
+    
 
             ##############################################################################
             # For each character
@@ -153,7 +165,7 @@ def extract_building_number(model, image_path):
 
 
 def extract_character(whole_number):
-
+    
     characters = []
 
     resized_image = cv2.resize(whole_number, (800,500))
@@ -163,45 +175,190 @@ def extract_character(whole_number):
     clahe = cv2.createCLAHE(clipLimit=2.0, tileGridSize=(8,8))
     gray = clahe.apply(gray)
 
-    thresh = cv2.adaptiveThreshold(gray, 255, cv2.ADAPTIVE_THRESH_GAUSSIAN_C, cv2.THRESH_BINARY_INV, 51, 5)
+    #equalised = cv2.equalizeHist(gray)
+    equalised = gray
 
-    kernel = cv2.getStructuringElement(cv2.MORPH_RECT, (3,3))
-    close = cv2.morphologyEx(thresh, cv2.MORPH_CLOSE, kernel, iterations=8)
+    kernel = cv2.getStructuringElement(cv2.MORPH_RECT, (5,5))
+    closed = cv2.morphologyEx(equalised, cv2.MORPH_CLOSE, kernel, iterations=2)
+    
+    if print_images:
+        cv2.imshow("Closed", closed)
+        cv2.waitKey(0)
+        cv2.destroyAllWindows()
 
-    kernel = cv2.getStructuringElement(cv2.MORPH_RECT, (9,9))
-    close = cv2.morphologyEx(close , cv2.MORPH_OPEN, kernel, iterations=1)
+    regions = stable_mser_regions(closed)
 
-    inverted = cv2.bitwise_not(close)
+    vis = resized_image.copy()
 
-    #####################################################
-    # Find components
-    #####################################################
+    for (x, y, w, h) in regions:
+        colour = tuple(np.random.randint(0, 255, 3).tolist())
+        cv2.rectangle(vis, (x, y), (x + w, y + h), colour, 2)
 
-    max_prop = 0.35
-    min_prop = 0.04
 
-    num_labels, labels, stats, centroids = cv2.connectedComponentsWithStats(inverted, connectivity=8)
+    if print_images:
+        cv2.imshow("MSER Regions", vis)
+        cv2.waitKey(0)
+        cv2.destroyAllWindows()
 
-    height, width = resized_image.shape[:2]
-    img_area = height * width
-    max_area = img_area * max_prop
-    min_area = img_area * min_prop
 
-    char_list = []
-    for i in range(1, num_labels):
-        x, y, w, h, area = stats[i]
+    filtered = [(x, y, w, h) for (x, y, w, h) in regions if w <= h]
 
-        if area > max_area or area < min_area or w < 10 or h < 10:
-            continue
+    filtered = non_max_suppression(filtered)
 
-        char_img = gray[y:y+h, x:x+w]
-        char_list.append((x, char_img))
+    filtered = list(filtered)
+    filtered.sort(key=lambda c: c[2] * c[3], reverse=True)
 
-    char_list.sort(key=lambda c: c[0])
+    # IM GOING TO MAKE THE ASSUMPTION THAT THE BUILDING NUMBER DOESNT CONTAIN A LETTER FOR SIMPLICITY
+    # IM AWARE THAT THEY CAN BUT THAT ADDS TOO MUCH COMPLEXITY 
 
-    characters = [c[1] for c in char_list]
+    # If more than 3 characters are extracted then keep the 3 largest
+    if len(filtered) > 3:
+        filtered = filtered[:3]
+
+    filtered.sort(key=lambda c: c[0])
+
+    characters = [resized_image[y:y+h, x:x+w] for (x, y, w, h) in filtered]
 
     return characters
+
+
+
+
+def stable_mser_regions(image):
+    # Was testing something but ended up getting better results without different variations
+    variations = [0.15]#, 0.2, 0.25, 0.3]
+    all_bboxes = []
+
+    image_area = image.shape[0] * image.shape[1]
+    min_prop = 0.02
+    max_prop = 0.3
+
+    for var in variations:
+        mser = cv2.MSER_create()
+        mser.setDelta(7)
+        mser.setMinArea(int(image_area * min_prop))
+        mser.setMaxArea(int(image_area * max_prop))
+        mser.setMaxVariation(var)
+        mser.setMinDiversity(0.5)
+
+        regions, _ = mser.detectRegions(image)
+
+        bboxes = [cv2.boundingRect(p.reshape(-1,1,2)) for p in regions]
+
+        image_h, image_w = image.shape[:2]
+        min_area = int(image_h * image_w * min_prop)
+        max_area = int(image_h * image_w * max_prop)
+
+        if print_images:
+            for p in regions:
+                hull = cv2.convexHull(p.reshape(-1,1,2))
+                cv2.polylines(image, [hull], 1, (0,255,0), 2)
+            cv2.imshow("MSER raw", image)
+            cv2.waitKey(0)
+            cv2.destroyAllWindows()
+
+        filtered_bboxes = []
+        for (x, y, w, h) in bboxes:
+            area = w * h
+            if min_area <= area <= max_area:
+                filtered_bboxes.append((x, y, w, h))
+
+        all_bboxes.extend(filtered_bboxes)
+        
+    
+    merged = merge_boxes(all_bboxes, overlap_thresh=0.5)
+        
+
+    return merged
+
+
+
+
+
+
+def merge_boxes(boxes, overlap_thresh=0.7):
+    if len(boxes) == 0:
+        return []
+
+    boxes = np.array(boxes)
+    x1 = boxes[:,0]
+    y1 = boxes[:,1]
+    x2 = x1 + boxes[:,2]
+    y2 = y1 + boxes[:,3]
+
+    merged = []
+
+    used = np.zeros(len(boxes), dtype=bool)
+
+    for i in range(len(boxes)):
+        if used[i]:
+            continue
+        xi1, yi1, xi2, yi2 = x1[i], y1[i], x2[i], y2[i]
+        for j in range(i+1, len(boxes)):
+            if used[j]:
+                continue
+            xj1, yj1, xj2, yj2 = x1[j], y1[j], x2[j], y2[j]
+
+            # Compute intersection
+            xx1 = max(xi1, xj1)
+            yy1 = max(yi1, yj1)
+            xx2 = min(xi2, xj2)
+            yy2 = min(yi2, yj2)
+            w = max(0, xx2 - xx1)
+            h = max(0, yy2 - yy1)
+            intersection = w * h
+
+            area_i = (xi2 - xi1) * (yi2 - yi1)
+            area_j = (xj2 - xj1) * (yj2 - yj1)
+            overlap_ratio = intersection / min(area_i, area_j)
+
+            if overlap_ratio > overlap_thresh:
+                # Merge boxes
+                xi1 = min(xi1, xj1)
+                yi1 = min(yi1, yj1)
+                xi2 = max(xi2, xj2)
+                yi2 = max(yi2, yj2)
+                used[j] = True
+
+        merged.append((xi1, yi1, xi2 - xi1, yi2 - yi1))
+
+    return merged
+
+
+
+
+
+
+def non_max_suppression(boxes, overlapThreshold=0.5):
+    if len(boxes) == 0:
+        return []
+    
+    boxes = np.array(boxes)
+    x1 = boxes[:,0]
+    y1 = boxes[:,1]
+    x2 = x1 + boxes[:,2]
+    y2 = y1 + boxes[:,3]
+
+    areas = (x2 - x1 + 1) * (y2 - y1 + 1)
+    idxs = np.argsort(areas)[::-1]
+
+    keep = []
+    while len(idxs) > 0:
+        i = idxs[0]
+        keep.append(i)
+
+        xx1 = np.maximum(x1[i], x1[idxs[1:]])
+        yy1 = np.maximum(y1[i], y1[idxs[1:]])
+        xx2 = np.minimum(x2[i], x2[idxs[1:]])
+        yy2 = np.minimum(y2[i], y2[idxs[1:]])
+
+        w = np.maximum(0, xx2 - xx1 + 1)
+        h = np.maximum(0, yy2 - yy1 + 1)
+        overlap = (w * h) / areas[idxs[1:]]
+
+        idxs = idxs[np.where(overlap <= overlapThreshold)[0] + 1]
+
+    return boxes[keep].astype("int")
 
 
 
@@ -217,17 +374,10 @@ def predict_character(character):
     #####################################################
     # Inference on external images
     #####################################################
+    
     resized = cv2.resize(character, (32,32))
 
-    thresh = cv2.adaptiveThreshold(resized, 255, cv2.ADAPTIVE_THRESH_GAUSSIAN_C, cv2.THRESH_BINARY_INV, 51, 5)
-    kernel = cv2.getStructuringElement(cv2.MORPH_RECT, (3,3))
-    close = cv2.morphologyEx(thresh, cv2.MORPH_CLOSE, kernel, iterations=1)
-
-    clahe = cv2.createCLAHE(clipLimit=2.0, tileGridSize=(8,8)).apply(close)
-
-    colourAgain = cv2.cvtColor(clahe, cv2.COLOR_GRAY2RGB)
-
-    scaled = colourAgain.astype(np.float32) / 255.0
+    scaled = resized.astype(np.float32) / 255.0
     expanded = np.expand_dims(scaled, axis=0)
 
     pred = model.predict(expanded)
@@ -248,7 +398,9 @@ def retrain_character_model():
 
     def preprocess(image, label):
         image = tf.image.convert_image_dtype(image, tf.float32)
-        label = tf.one_hot(label, depth=10)
+        label = tf.where(label==10, 0, label) ############## CHECK THESE 2 LINES AFTER RETRAINING MODEL
+        label = tf.one_hot(label, depth=10) ##############
+
         return image, label
     
     # Test data
