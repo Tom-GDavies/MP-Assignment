@@ -27,6 +27,9 @@ from tensorflow.keras import layers, models
 from tensorflow.keras.models import load_model
 from tensorflow.keras.callbacks import EarlyStopping
 
+
+print_images = True
+
 def save_output(output_path, content, output_type='txt'):
     os.makedirs(os.path.dirname(output_path), exist_ok=True)
     
@@ -50,7 +53,6 @@ def run_task4(image_path, config):
     # Train or load model
     ##############################################################################
     train_model = False
-    print_images = True
 
     # Check that cuda is enabled
     print(torch.version.cuda)
@@ -163,13 +165,33 @@ def extract_character(whole_number):
     clahe = cv2.createCLAHE(clipLimit=2.0, tileGridSize=(8,8))
     gray = clahe.apply(gray)
 
+    if print_images:
+        cv2.imshow("Grayscale", gray)
+        cv2.waitKey(0)
+        cv2.destroyAllWindows()
+
     thresh = cv2.adaptiveThreshold(gray, 255, cv2.ADAPTIVE_THRESH_GAUSSIAN_C, cv2.THRESH_BINARY_INV, 51, 5)
+
+    if print_images:
+        cv2.imshow("Thresholded", thresh)
+        cv2.waitKey(0)
+        cv2.destroyAllWindows()
 
     kernel = cv2.getStructuringElement(cv2.MORPH_RECT, (3,3))
     close = cv2.morphologyEx(thresh, cv2.MORPH_CLOSE, kernel, iterations=8)
 
+    if print_images:
+        cv2.imshow("Cleaned 1", close)
+        cv2.waitKey(0)
+        cv2.destroyAllWindows()
+
     kernel = cv2.getStructuringElement(cv2.MORPH_RECT, (9,9))
     close = cv2.morphologyEx(close , cv2.MORPH_OPEN, kernel, iterations=1)
+
+    if print_images:
+        cv2.imshow("Cleaned 1 open", close)
+        cv2.waitKey(0)
+        cv2.destroyAllWindows()
 
     inverted = cv2.bitwise_not(close)
 
