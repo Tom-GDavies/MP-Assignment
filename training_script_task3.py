@@ -35,11 +35,11 @@ def preprocess(image, label):
 ds_test = ds_test.map(preprocess).batch(64).prefetch(tf.data.AUTOTUNE)
 ds_train = ds_train.map(preprocess).shuffle(10000, reshuffle_each_iteration=True)
 
-# Split into train/val
+# Split into training and validation
 ds_val = ds_train.take(5000)
 ds_train = ds_train.skip(5000)
 
-# Batch AFTER splitting
+# Create batches
 ds_train = ds_train.batch(64).prefetch(tf.data.AUTOTUNE)
 ds_val = ds_val.batch(64).prefetch(tf.data.AUTOTUNE)
 
