@@ -20,23 +20,22 @@ os.environ["MKL_NUM_THREADS"] = "1"
 import ultralytics
 import torch
 
-def train_model():
+# Check that cuda is enabled
+print(torch.version.cuda)
+print(torch.cuda.is_available())
+if torch.cuda.is_available():
+    print(torch.cuda.get_device_name(0))
 
-    # Check that cuda is enabled
-    print(torch.version.cuda)
-    print(torch.cuda.is_available())
-    if torch.cuda.is_available():
-        print(torch.cuda.get_device_name(0))
-
-    # Train model
-    model = ultralytics.YOLO("yolo11s.pt")
+# Train model
+if __name__ == "__main__":
+    model = ultralytics.YOLO("yolov8n.pt")
 
     model.train(
         data="data.yaml",
         epochs=50,
-        batch=8,
         imgsz=960,
-        workers=2
+        batch=8,
+        name="train"
     )
 
     # Evaluate model

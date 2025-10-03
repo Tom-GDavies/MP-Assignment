@@ -21,99 +21,91 @@ from tensorflow.keras import layers, models
 from tensorflow.keras.callbacks import EarlyStopping
 from tensorflow.keras.preprocessing.image import ImageDataGenerator
 
+#####################################################
+# Load MNIST data
+#####################################################
+ds_train, ds_test = tfds.load('mnist', split=['train', 'test'], as_supervised=True)
 
-# Set to true to print the images
-show_images = False
-retrain_model = False
+def preprocess(image, label):
+    image = tf.image.convert_image_dtype(image, tf.float32)
+    label = tf.one_hot(label, depth=10)
+    return image, label
 
+# Apply preprocessing
+ds_test = ds_test.map(preprocess).batch(64).prefetch(tf.data.AUTOTUNE)
+ds_train = ds_train.map(preprocess).shuffle(10000, reshuffle_each_iteration=True)
 
+# Split into train/val
+ds_val = ds_train.take(5000)
+ds_train = ds_train.skip(5000)
 
-def train_model():
-    #####################################################
-    # Load MNIST data
-    #####################################################
-    ds_train, ds_test = tfds.load('mnist', split=['train', 'test'], as_supervised=True)
+# Batch AFTER splitting
+ds_train = ds_train.batch(64).prefetch(tf.data.AUTOTUNE)
+ds_val = ds_val.batch(64).prefetch(tf.data.AUTOTUNE)
 
-    def preprocess(image, label):
-        image = tf.image.convert_image_dtype(image, tf.float32)
-        label = tf.one_hot(label, depth=10)
-        return image, label
-    
-    # Apply preprocessing
-    ds_test = ds_test.map(preprocess).batch(64).prefetch(tf.data.AUTOTUNE)
-    ds_train = ds_train.map(preprocess).shuffle(10000, reshuffle_each_iteration=True)
+#####################################################
+# Data augmentation
+#####################################################
 
-    # Split into train/val
-    ds_val = ds_train.take(5000)
-    ds_train = ds_train.skip(5000)
+datagen = ImageDataGenerator(
+    rotation_range=10,
+    width_shift_range=0.1,
+    height_shift_range=0.1,
+    zoom_range=0.1
+)
 
-    # Batch AFTER splitting
-    ds_train = ds_train.batch(64).prefetch(tf.data.AUTOTUNE)
-    ds_val = ds_val.batch(64).prefetch(tf.data.AUTOTUNE)
+batch_size = 64
 
-    #####################################################
-    # Data augmentation
-    #####################################################
+x_train, y_train = [], []
+for img, lbl in ds_train.unbatch():
+    x_train.append(img.numpy())
+    y_train.append(lbl.numpy())
 
-    datagen = ImageDataGenerator(
-        rotation_range=10,
-        width_shift_range=0.1,
-        height_shift_range=0.1,
-        zoom_range=0.1
-    )
+x_train = np.array(x_train)
+y_train = np.array(y_train)
 
-    batch_size = 64
+train_generator = datagen.flow(x_train, y_train, batch_size=batch_size)
 
-    x_train, y_train = [], []
-    for img, lbl in ds_train.unbatch():
-        x_train.append(img.numpy())
-        y_train.append(lbl.numpy())
+#####################################################
+# Define CNN model
+#####################################################
+model = models.Sequential([
+    layers.Conv2D(32, (3,3), activation='relu', input_shape=(28,28,1)),
+    layers.BatchNormalization(),
+    layers.Conv2D(32, (3,3), activation='relu'),
+    layers.MaxPooling2D((2,2)),
+    layers.Dropout(0.25),
 
-    x_train = np.array(x_train)
-    y_train = np.array(y_train)
+    layers.Conv2D(64, (3,3), activation='relu'),
+    layers.BatchNormalization(),
+    layers.Conv2D(64, (3,3), activation='relu'),
+    layers.MaxPooling2D((2,2)),
+    layers.Dropout(0.25),
 
-    train_generator = datagen.flow(x_train, y_train, batch_size=batch_size)
+    layers.Flatten(),
+    layers.Dense(128, activation='relu'),
+    layers.Dropout(0.5),
+    layers.Dense(10, activation='softmax')
+])
 
-    #####################################################
-    # Define CNN model
-    #####################################################
-    model = models.Sequential([
-        layers.Conv2D(32, (3,3), activation='relu', input_shape=(28,28,1)),
-        layers.BatchNormalization(),
-        layers.Conv2D(32, (3,3), activation='relu'),
-        layers.MaxPooling2D((2,2)),
-        layers.Dropout(0.25),
+model.compile(optimizer='adam',
+    loss='categorical_crossentropy',
+    metrics=['accuracy'])
 
-        layers.Conv2D(64, (3,3), activation='relu'),
-        layers.BatchNormalization(),
-        layers.Conv2D(64, (3,3), activation='relu'),
-        layers.MaxPooling2D((2,2)),
-        layers.Dropout(0.25),
+#####################################################
+# Train model
+#####################################################
+callback = EarlyStopping(monitor='val_accuracy', patience=5, restore_best_weights=True)
 
-        layers.Flatten(),
-        layers.Dense(128, activation='relu'),
-        layers.Dropout(0.5),
-        layers.Dense(10, activation='softmax')
-    ])
+history = model.fit(
+    train_generator,
+    epochs=100,
+    validation_data=ds_val,
+    callbacks=[callback]
+)
 
-    model.compile(optimizer='adam',
-        loss='categorical_crossentropy',
-        metrics=['accuracy'])
-
-    #####################################################
-    # Train model
-    #####################################################
-    callback = EarlyStopping(monitor='val_accuracy', patience=5, restore_best_weights=True)
-    
-    history = model.fit(
-        train_generator,
-        epochs=100,
-        validation_data=ds_val,
-        callbacks=[callback]
-    )
-
-    test_loss, test_acc = model.evaluate(ds_test)
-    print("Test accuracy:", test_acc, ", Test loss:", test_loss)
+test_loss, test_acc = model.evaluate(ds_test)
+print("Test accuracy:", test_acc, ", Test loss:", test_loss)
 
 
-    model.save("digit_cnn.h5")
+model.save("digit_cnn.h5")
