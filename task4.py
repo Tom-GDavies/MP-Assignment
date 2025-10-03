@@ -30,7 +30,7 @@ from tensorflow.keras.preprocessing.image import ImageDataGenerator
 from scipy import ndimage
 
 
-print_images = True
+print_images = False
 
 def save_output(output_path, content, output_type='txt'):
     os.makedirs(os.path.dirname(output_path), exist_ok=True)
@@ -135,10 +135,18 @@ def run_task4(image_path, config):
                 whole_number += str(prediction)
 
             ##############################################################################
-            # If the first digit was recognised as a 7, it is most likely a mis-classified 1
+            # If the first or second digits were recognised as 7, it is most likely a misclassified 1
             ##############################################################################
-            if whole_number.startswith("7"):
-                whole_number = "1" + whole_number[1:]
+            digits = list(whole_number)
+
+            if len(digits) > 0 and digits[0] == "7":
+                digits[0] = "1"
+
+            if len(digits) > 1 and digits[1] == "7":
+                digits[1] = "1"
+
+            whole_number = "".join(digits)
+
 
             ##############################################################################
             # Output whole building number

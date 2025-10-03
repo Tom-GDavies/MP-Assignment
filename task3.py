@@ -13,7 +13,7 @@ from scipy import ndimage
 
 
 # Set to true to print the images
-show_images = True
+show_images = False
 retrain_model = False
 
 
