@@ -84,7 +84,7 @@ def run_task2(image_path, config):
                 output_dir.mkdir(parents=True, exist_ok=True)
 
                 for i, char in enumerate(characters, start=1):
-                    output_img_path = output_dir / f"c{i:02d}.png"
+                    output_img_path = output_dir / f"c{i}.png"
                     save_output(str(output_img_path), char, output_type='image')
 
             if print_images:
