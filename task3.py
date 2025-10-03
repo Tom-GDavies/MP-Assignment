@@ -40,12 +40,29 @@ def save_output(output_path, content, output_type='txt'):
     else:
         print("Unsupported output type. Use 'txt' or 'image'.")
 
+#####################################################
+# Function which performs preprocessing to alter images to be more similar to MNIST digits
+# INPUT: Image of a character
+# OUPTUT: Preprocessed image of a character
+#####################################################
 def preprocess_digit(image):
+
+    #####################################################
+    # Convert to gray, and then threshold to binary
+    #####################################################
     gray = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
     _, thresh = cv2.threshold(gray, 0, 255, cv2.THRESH_BINARY + cv2.THRESH_OTSU)
 
+    #####################################################
+    # Invert depending on most promenent value
+    #####################################################
+
     if np.mean(thresh) > 127:
         thresh = cv2.bitwise_not(thresh)
+
+    #####################################################
+    # Add padding around character
+    #####################################################
 
     coords = cv2.findNonZero(thresh)
     if coords is None:
@@ -65,6 +82,10 @@ def preprocess_digit(image):
 
         padded = cv2.copyMakeBorder(resized_digit, pad_top, pad_bottom, pad_left, pad_right,
                                     cv2.BORDER_CONSTANT, value=0)
+        
+    #####################################################
+    # Scale to range [0,1]
+    #####################################################
 
     scaled = padded.astype(np.float32) / 255.0
     scaled = np.expand_dims(scaled, axis=-1)
@@ -72,6 +93,10 @@ def preprocess_digit(image):
 
 
 def run_task3(image_path, config):
+
+    #####################################################
+    # Load the model
+    #####################################################
 
     model_path = Path(__file__).resolve().parent / "digit_cnn.h5"
 
@@ -86,6 +111,10 @@ def run_task3(image_path, config):
         for folder_name in os.listdir(image_path):
             if re.search(r"bn\d+", folder_name):
 
+                #####################################################
+                # Determine output folder 
+                #####################################################
+
                 index = ''.join(filter(str.isdigit, folder_name))
 
                 output_dir = Path(__file__).resolve().parent / f"output/task3/bn{index}"
@@ -94,6 +123,10 @@ def run_task3(image_path, config):
                 output_dir.mkdir(parents=True, exist_ok=True)
 
                 folder_path = os.path.join(image_path, folder_name)
+
+                #####################################################
+                # For each image in input subfolder
+                #####################################################
 
                 for file_name in os.listdir(folder_path):
                     if re.search(r"c\d+\.png", file_name):
@@ -105,7 +138,15 @@ def run_task3(image_path, config):
                             print(f"Failed to load image at : {file_path}")
                             continue
 
+                        #####################################################
+                        # Perform preprocessing
+                        #####################################################
+
                         processed_image = preprocess_digit(image)
+
+                        #####################################################
+                        # Predict digit
+                        #####################################################
 
                         pred = model.predict(processed_image)
                         predicted_class = np.argmax(pred, axis=1)[0]
@@ -117,7 +158,10 @@ def run_task3(image_path, config):
                             cv2.waitKey(0)
                             cv2.destroyAllWindows()
 
-                        # Save output in the same folder, preserving cXX.txt naming
+                        #####################################################
+                        # Output prediction
+                        #####################################################
+
                         img_num = re.search(r"c(\d+)\.png", file_name).group(1)
                         output_txt_path = output_dir / f"c{img_num}.txt"
                         save_output(str(output_txt_path), str(predicted_class), output_type='txt')

@@ -42,12 +42,13 @@ def save_output(output_path, content, output_type='txt'):
 def run_task2(image_path, config):
     # TODO: Implement task 2 here
 
-    #####################################################
-    # Import image
-    #####################################################
-
+    # For each file in the input directory
     for filename in os.listdir(image_path):
         if re.search(r"bn\d+\.png", filename):
+
+            #####################################################
+            # Import image
+            #####################################################
             file_path = os.path.join(image_path, filename)
             image = cv2.imread(file_path)
 
@@ -55,19 +56,36 @@ def run_task2(image_path, config):
                 print(f"Failed to load image at : {file_path}")
                 continue
 
+            #####################################################
+            # Extract characters from the image
+            #####################################################
+
             characters = extract_character(image)
 
-            # Generate index from filename
-            index = ''.join(filter(str.isdigit, filename))
+            if len(characters) == 0:
+                print(f"No characters extracted from {filename}, skipping...")
+                continue
 
-            # Ensure the building-specific output directory exists
-            output_dir = Path(__file__).resolve().parent / f"output/task2/bn{index}"
-            output_dir.mkdir(parents=True, exist_ok=True)
+            #####################################################
+            # Output extracted characters
+            #####################################################
 
-            # Save each character as c01.png, c02.png, ...
-            for i, char in enumerate(characters, start=1):
-                output_img_path = output_dir / f"c{i:02d}.png"
-                save_output(str(output_img_path), char, output_type='image')
+            # Extract file name with regex
+            match = re.match(r"bn(\d+)\.png", filename)
+            if not match:
+                print(f"Error: invalid file name: {filename}")
+                continue
+
+            index = match.group(1)
+
+            # If one or more character is detected
+            if len(characters) > 0:
+                output_dir = Path(__file__).resolve().parent / "output" / "task2" / f"bn{index}"
+                output_dir.mkdir(parents=True, exist_ok=True)
+
+                for i, char in enumerate(characters, start=1):
+                    output_img_path = output_dir / f"c{i:02d}.png"
+                    save_output(str(output_img_path), char, output_type='image')
 
             if print_images:
                 for i, char in enumerate(characters):
@@ -78,10 +96,18 @@ def run_task2(image_path, config):
         else:
             print(f"Error: invalid file name: {filename}")
 
-
+#####################################################
+# Function which extracts characters from a cropped building number
+# INPUT: Cropped building number image
+# OUPTUT: Cropped images of individual characters
+#####################################################
 def extract_character(whole_number):
     
     characters = []
+
+    #####################################################
+    # Pre-processing
+    #####################################################
 
     resized_image = cv2.resize(whole_number, (800,500))
 
@@ -90,7 +116,6 @@ def extract_character(whole_number):
     clahe = cv2.createCLAHE(clipLimit=2.0, tileGridSize=(8,8))
     gray = clahe.apply(gray)
 
-    #equalised = cv2.equalizeHist(gray)
     equalised = gray
 
     kernel = cv2.getStructuringElement(cv2.MORPH_RECT, (5,5))
@@ -101,7 +126,15 @@ def extract_character(whole_number):
         cv2.waitKey(0)
         cv2.destroyAllWindows()
 
+    #####################################################
+    # MSER
+    #####################################################
+
     regions = stable_mser_regions(closed)
+
+    #####################################################
+    # Crop out characters
+    #####################################################
 
     vis = resized_image.copy()
 
@@ -115,6 +148,9 @@ def extract_character(whole_number):
         cv2.waitKey(0)
         cv2.destroyAllWindows()
 
+    #####################################################
+    # Post processing and filtering
+    #####################################################
 
     filtered = [(x, y, w, h) for (x, y, w, h) in regions if w <= h]
 
@@ -138,48 +174,68 @@ def extract_character(whole_number):
 
 
 
-
+#####################################################
+# Function which applied MSER to find possible regions containing characters
+# INPUT: Pre-processing image of a cropped building number
+# OUPTUT: Potential bounding boxes of characters
+#####################################################
 def stable_mser_regions(image):
-    # Was testing something but ended up getting better results without different variations
-    variations = [0.15]#, 0.2, 0.25, 0.3]
     all_bboxes = []
 
     image_area = image.shape[0] * image.shape[1]
     min_prop = 0.02
     max_prop = 0.3
 
-    for var in variations:
-        mser = cv2.MSER_create()
-        mser.setDelta(7)
-        mser.setMinArea(int(image_area * min_prop))
-        mser.setMaxArea(int(image_area * max_prop))
-        mser.setMaxVariation(var)
-        mser.setMinDiversity(0.5)
+    #####################################################
+    # Set up MSER
+    #####################################################
 
-        regions, _ = mser.detectRegions(image)
+    mser = cv2.MSER_create()
+    mser.setDelta(7)
+    mser.setMinArea(int(image_area * min_prop))
+    mser.setMaxArea(int(image_area * max_prop))
+    mser.setMaxVariation(0.15)
+    mser.setMinDiversity(0.5)
 
-        bboxes = [cv2.boundingRect(p.reshape(-1,1,2)) for p in regions]
+    #####################################################
+    # Detect regions
+    #####################################################
 
-        image_h, image_w = image.shape[:2]
-        min_area = int(image_h * image_w * min_prop)
-        max_area = int(image_h * image_w * max_prop)
+    regions, _ = mser.detectRegions(image)
 
-        if print_images:
-            for p in regions:
-                hull = cv2.convexHull(p.reshape(-1,1,2))
-                cv2.polylines(image, [hull], 1, (0,255,0), 2)
-            cv2.imshow("MSER raw", image)
-            cv2.waitKey(0)
-            cv2.destroyAllWindows()
+    #####################################################
+    # Extract bounding boxes
+    #####################################################
 
-        filtered_bboxes = []
-        for (x, y, w, h) in bboxes:
-            area = w * h
-            if min_area <= area <= max_area:
-                filtered_bboxes.append((x, y, w, h))
+    bboxes = [cv2.boundingRect(p.reshape(-1,1,2)) for p in regions]
 
-        all_bboxes.extend(filtered_bboxes)
-        
+    image_h, image_w = image.shape[:2]
+    min_area = int(image_h * image_w * min_prop)
+    max_area = int(image_h * image_w * max_prop)
+
+    if print_images:
+        for p in regions:
+            hull = cv2.convexHull(p.reshape(-1,1,2))
+            cv2.polylines(image, [hull], 1, (0,255,0), 2)
+        cv2.imshow("MSER raw", image)
+        cv2.waitKey(0)
+        cv2.destroyAllWindows()
+
+    #####################################################
+    # Post processing and filtering
+    #####################################################
+
+    filtered_bboxes = []
+    for (x, y, w, h) in bboxes:
+        area = w * h
+        if min_area <= area <= max_area:
+            filtered_bboxes.append((x, y, w, h))
+
+    all_bboxes.extend(filtered_bboxes)
+
+    #####################################################
+    # Merge overlapping boxes
+    #####################################################    
     
     merged = merge_boxes(all_bboxes, overlap_thresh=0.5)
         
@@ -190,10 +246,18 @@ def stable_mser_regions(image):
 
 
 
-
+#####################################################
+# Function which merges boxes which have a significant level of overlap in an attempt to reduce fragmentation
+# INPUT: List of potential bounding boxes
+# OUPTUT: List of potential bounding boxes with some merged
+#####################################################
 def merge_boxes(boxes, overlap_thresh=0.7):
     if len(boxes) == 0:
         return []
+    
+    #####################################################
+    # Extract corners
+    #####################################################  
 
     boxes = np.array(boxes)
     x1 = boxes[:,0]
@@ -205,6 +269,10 @@ def merge_boxes(boxes, overlap_thresh=0.7):
 
     used = np.zeros(len(boxes), dtype=bool)
 
+    #####################################################
+    # For each pair of boxes
+    #####################################################  
+
     for i in range(len(boxes)):
         if used[i]:
             continue
@@ -214,7 +282,10 @@ def merge_boxes(boxes, overlap_thresh=0.7):
                 continue
             xj1, yj1, xj2, yj2 = x1[j], y1[j], x2[j], y2[j]
 
-            # Compute intersection
+            #####################################################
+            # Compute the intersection
+            #####################################################  
+
             xx1 = max(xi1, xj1)
             yy1 = max(yi1, yj1)
             xx2 = min(xi2, xj2)
@@ -223,9 +294,17 @@ def merge_boxes(boxes, overlap_thresh=0.7):
             h = max(0, yy2 - yy1)
             intersection = w * h
 
+            #####################################################
+            # Computer the overlap ration
+            #####################################################  
+
             area_i = (xi2 - xi1) * (yi2 - yi1)
             area_j = (xj2 - xj1) * (yj2 - yj1)
             overlap_ratio = intersection / min(area_i, area_j)
+
+            #####################################################
+            # If overlap is over threshold, merge the boxes
+            #####################################################  
 
             if overlap_ratio > overlap_thresh:
                 # Merge boxes
@@ -243,16 +322,27 @@ def merge_boxes(boxes, overlap_thresh=0.7):
 
 
 
-
+#####################################################
+# Function which performs non-maximal suppression to minimise overlapping bounding boxes on the same characters
+# INPUT: List of potential bounding boxes
+# OUPTUT: List of potential bounding boxes with some removed
+#####################################################
 def non_max_suppression(boxes, overlapThreshold=0.5):
     if len(boxes) == 0:
         return []
     
+    #####################################################
+    # Extract the corners
+    ##################################################### 
     boxes = np.array(boxes)
     x1 = boxes[:,0]
     y1 = boxes[:,1]
     x2 = x1 + boxes[:,2]
     y2 = y1 + boxes[:,3]
+
+    #####################################################
+    # Sort by decreasing area
+    ##################################################### 
 
     areas = (x2 - x1 + 1) * (y2 - y1 + 1)
     idxs = np.argsort(areas)[::-1]
@@ -262,6 +352,10 @@ def non_max_suppression(boxes, overlapThreshold=0.5):
         i = idxs[0]
         keep.append(i)
 
+        #####################################################
+        # Calculate the overlap
+        ##################################################### 
+
         xx1 = np.maximum(x1[i], x1[idxs[1:]])
         yy1 = np.maximum(y1[i], y1[idxs[1:]])
         xx2 = np.minimum(x2[i], x2[idxs[1:]])
@@ -270,6 +364,10 @@ def non_max_suppression(boxes, overlapThreshold=0.5):
         w = np.maximum(0, xx2 - xx1 + 1)
         h = np.maximum(0, yy2 - yy1 + 1)
         overlap = (w * h) / areas[idxs[1:]]
+
+        #####################################################
+        # Only add if overlap is below a threshold
+        ##################################################### 
 
         idxs = idxs[np.where(overlap <= overlapThreshold)[0] + 1]
 
