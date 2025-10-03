@@ -15,11 +15,10 @@
 # Last Modified: 2025-03-10
 
 import os
-import shutil
 import cv2
 import numpy as np
 import re
-import matplotlib.pyplot as plt
+from pathlib import Path
 
 # Set to true to print the images
 print_images = False
@@ -47,9 +46,9 @@ def run_task2(image_path, config):
     # Import image
     #####################################################
 
-    for file_name in os.listdir(image_path):
-        if re.search(r"bn\d+\.png", file_name):
-            file_path = os.path.join(image_path, file_name)
+    for filename in os.listdir(image_path):
+        if re.search(r"bn\d+\.png", filename):
+            file_path = os.path.join(image_path, filename)
             image = cv2.imread(file_path)
 
             if image is None:
@@ -58,29 +57,26 @@ def run_task2(image_path, config):
 
             characters = extract_character(image)
 
-            img_num = re.search(r"bn(\d+)\.png", file_name).group(1)
+            # Generate index from filename
+            index = ''.join(filter(str.isdigit, filename))
 
-            folder = os.path.join("output/task2", f"bn{img_num}")
+            # Ensure the building-specific output directory exists
+            output_dir = Path(__file__).resolve().parent / f"output/task2/bn{index}"
+            output_dir.mkdir(parents=True, exist_ok=True)
 
-            if os.path.exists(folder):
-                shutil.rmtree(folder)
-            os.makedirs(folder, exist_ok=True)
-
-            #####################################################
-            # Save each character
-            #####################################################
-
+            # Save each character as c01.png, c02.png, ...
             for i, char in enumerate(characters, start=1):
-                save_output(os.path.join(folder, f"c{i:02d}.png"), char, output_type='image')
+                output_img_path = output_dir / f"c{i:02d}.png"
+                save_output(str(output_img_path), char, output_type='image')
 
-            for i, char in enumerate(characters):
-                if print_images:
+            if print_images:
+                for i, char in enumerate(characters):
                     cv2.imshow(f"Character {i+1}", char)
                     cv2.waitKey(0)
                     cv2.destroyAllWindows()
 
         else:
-            print(f"Error: invalid file name: {file_name}")
+            print(f"Error: invalid file name: {filename}")
 
 
 def extract_character(whole_number):

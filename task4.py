@@ -15,12 +15,15 @@
 # Last Modified: 2025-03-10
 
 import os
-import ultralytics
-import torch
+import re
+import shutil
 import cv2
 import numpy as np
+import torch
+import ultralytics
 from pathlib import Path
 from tensorflow.keras.models import load_model
+
 
 
 print_images = False
@@ -45,112 +48,76 @@ def run_task4(image_path, config):
 
 
     ##############################################################################
-    # Train or load model
-    ##############################################################################
-    train_model = False
-
-    # Check that cuda is enabled
-    print(torch.version.cuda)
-    print(torch.cuda.is_available())
-    if torch.cuda.is_available():
-        print(torch.cuda.get_device_name(0))
-
-    if train_model:
-        # Train model
-        model = ultralytics.YOLO("yolo11s.pt")
-
-        model.train(
-            data="data.yaml",
-            epochs=50,
-            batch=8,
-            imgsz=960,
-            workers=2
-        )
-
-        # Evaluate model
-        metrics = model.val(split="test")
-        print(metrics)
-    else:
-        model = ultralytics.YOLO("runs/detect/train/weights/best.pt")
-
-    ##############################################################################
-    # For each image in provided folder
+    # Load model
     ##############################################################################
 
-    for filename in os.listdir(image_path):
-        if filename.lower().endswith(".jpg"):
-            file_path = os.path.join(image_path, filename)
-
-            ##############################################################################
-            # Extract the building number from the image
-            ##############################################################################
-            whole_building_number = extract_building_number(model, file_path)
-
-            if whole_building_number is None:
-                print(f"No building number detected in {filename}, skipping...")
-                continue  # skip this image
-
-            if print_images and whole_building_number is not None:
-                cv2.imshow("Building Number", whole_building_number)
-                cv2.waitKey(0)
-                cv2.destroyAllWindows()
-
-            ##############################################################################
-            # Extract individual characters from building number
-            ##############################################################################
-            characters = extract_character(whole_building_number)
-
-            if print_images:
-                for i, char_img in enumerate(characters):
-                    cv2.imshow(f"Character {i+1}", char_img)
-                    cv2.waitKey(0)
-                    cv2.destroyAllWindows()
-
-            # If there are less than 3 then it was extracted incorrectly
-            if len(characters) < 3:
-                print("Less than 3 characters were extracted. Either the number is an invalid building number or characters were extracted unsuccessfully.")
-                continue
+    model_path = Path(__file__).resolve().parent / "runs/detect/train/weights/best.pt"
     
+    if not model_path.exists():
+        print(f"Error loading CNN, CNN does not exist at {model_path}. Please train the required model.")
 
-            ##############################################################################
-            # For each character
-            ##############################################################################
-            whole_number = ""
+    else:
+        model = ultralytics.YOLO(str(model_path))
+        ##############################################################################
+        # For each image in provided folder
+        ##############################################################################
 
-            for character in characters:
-                ##############################################################################
-                # Predict each character
-                ##############################################################################
-                prediction = predict_character(character)
+        for folder_name in os.listdir(image_path):
+            if re.search(r"bn\d+", folder_name):
+                index = ''.join(filter(str.isdigit, folder_name))
+                folder_path = os.path.join(image_path, folder_name)
 
-                print("Predicted Character:", prediction)
+                # Preserve the relative folder structure in output
+                output_dir = Path(__file__).resolve().parent / f"output/task4/{folder_name}"
+                if output_dir.exists():
+                    shutil.rmtree(output_dir)
+                output_dir.mkdir(parents=True, exist_ok=True)
 
-                whole_number += str(prediction)
+                for filename in os.listdir(folder_path):
+                    if filename.lower().endswith(".jpg"):
+                        file_path = os.path.join(folder_path, filename)
 
-            ##############################################################################
-            # If the first or second digits were recognised as 7, it is most likely a misclassified 1
-            ##############################################################################
-            digits = list(whole_number)
+                        whole_building_number = extract_building_number(model, file_path)
+                        if whole_building_number is None:
+                            print(f"No building number detected in {filename}, skipping...")
+                            continue
 
-            if len(digits) > 0 and digits[0] == "7":
-                digits[0] = "1"
+                        if print_images:
+                            cv2.imshow("Building Number", whole_building_number)
+                            cv2.waitKey(0)
+                            cv2.destroyAllWindows()
 
-            if len(digits) > 1 and digits[1] == "7":
-                digits[1] = "1"
+                        characters = extract_character(whole_building_number)
 
-            whole_number = "".join(digits)
+                        if print_images:
+                            for i, char_img in enumerate(characters):
+                                cv2.imshow(f"Character {i+1}", char_img)
+                                cv2.waitKey(0)
+                                cv2.destroyAllWindows()
 
+                        if len(characters) < 3:
+                            print("Less than 3 characters were extracted. Skipping...")
+                            continue
 
-            ##############################################################################
-            # Output whole building number
-            ##############################################################################
-            if whole_number != "":
-                name_portion, _ = os.path.splitext(filename)
-                new_filename = f"{name_portion}.txt"
+                        whole_number = ""
+                        for character in characters:
+                            prediction = predict_character(character)
+                            whole_number += str(prediction)
 
-                output_path = os.path.join("./output/task4", new_filename)
+                        # Fix misclassified 7 -> 1 in first two digits
+                        digits = list(whole_number)
+                        if len(digits) > 0 and digits[0] == "7":
+                            digits[0] = "1"
+                        if len(digits) > 1 and digits[1] == "7":
+                            digits[1] = "1"
+                        whole_number = "".join(digits)
 
-                save_output(output_path, whole_number, output_type='txt')
+                        # Save output in same relative folder
+                        name_portion, _ = os.path.splitext(filename)
+                        output_txt_path = output_dir / f"{name_portion}.txt"
+                        save_output(output_txt_path, whole_number, output_type='txt')
+            else:
+                print(f"Error: invalid folder name: {folder_name}")
 
 
 

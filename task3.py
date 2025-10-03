@@ -86,19 +86,19 @@ def run_task3(image_path, config):
         for folder_name in os.listdir(image_path):
             if re.search(r"bn\d+", folder_name):
 
-                folder_num = re.search(r"bn(\d+)", folder_name).group(1)
-                folder = os.path.join("output/task3", f"bn{folder_num}")
+                index = ''.join(filter(str.isdigit, folder_name))
 
-                if os.path.exists(folder):
-                    shutil.rmtree(folder)
-                os.makedirs(folder, exist_ok=True)
-                
-                new_image_path = os.path.join(image_path, folder_name)
+                output_dir = Path(__file__).resolve().parent / f"output/task3/bn{index}"
+                if output_dir.exists():
+                    shutil.rmtree(output_dir)         
+                output_dir.mkdir(parents=True, exist_ok=True)
 
-                for file_name in os.listdir(new_image_path):
+                folder_path = os.path.join(image_path, folder_name)
+
+                for file_name in os.listdir(folder_path):
                     if re.search(r"c\d+\.png", file_name):
 
-                        file_path = os.path.join(new_image_path, file_name)
+                        file_path = os.path.join(folder_path, file_name)
                         image = cv2.imread(file_path)
 
                         if image is None:
@@ -117,9 +117,11 @@ def run_task3(image_path, config):
                             cv2.waitKey(0)
                             cv2.destroyAllWindows()
 
+                        # Save output in the same folder, preserving cXX.txt naming
                         img_num = re.search(r"c(\d+)\.png", file_name).group(1)
-                        save_output(os.path.join(folder, f"c{img_num}.txt"), str(predicted_class), output_type='txt')
+                        output_txt_path = output_dir / f"c{img_num}.txt"
+                        save_output(str(output_txt_path), str(predicted_class), output_type='txt')
                     else:
-                        print(f"Error: invalid file name: {folder_name}")
+                        print(f"Error: invalid file name: {file_name}")
             else:
                 print(f"Error: invalid folder name: {folder_name}")
